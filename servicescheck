@@ -7,6 +7,13 @@ $SysmonDir = "$TempDir\Sysmon"
 
 $Services = @("PcaSvc", "PlugPlay", "DPS", "DiagTrack", "SysMain", "EventLog")
 
+$script:SecurityStatus = @{
+    Antivirus = $false
+    SecureBoot = $false
+    HVCI = $false
+    IOMMU = $false
+}
+
 function Write-Banner {
     Clear-Host
     Write-Host ""
@@ -69,7 +76,7 @@ function Install-Sysmon {
                 Write-Status " OK " "Download concluido (IWR)" "Green"
             }
             catch {
-                Write-Status " FAIL " "Erro ao baixar: $_" "Red"
+                Write-Status "FAIL" "Erro ao baixar: $_" "Red"
                 return $false
             }
         }
@@ -86,7 +93,7 @@ function Install-Sysmon {
         Write-Status " OK " "Arquivos extraidos" "Green"
     }
     catch {
-        Write-Status " FAIL " "Erro ao extrair: $_" "Red"
+        Write-Status "FAIL" "Erro ao extrair: $_" "Red"
         return $false
     }
 
@@ -94,7 +101,7 @@ function Install-Sysmon {
     $sysmonExe = if ($is64bit) { "$SysmonDir\Sysmon64.exe" } else { "$SysmonDir\Sysmon.exe" }
     
     if (!(Test-Path $sysmonExe)) {
-        Write-Status " FAIL " "Executavel nao encontrado: $sysmonExe" "Red"
+        Write-Status "FAIL" "Executavel nao encontrado: $sysmonExe" "Red"
         return $false
     }
 
@@ -195,6 +202,7 @@ function Get-SecurityChecks {
         $secureBoot = Confirm-SecureBootUEFI -ErrorAction Stop
         if ($secureBoot) {
             Write-Status " ON " "Secure Boot: Ativado" "Green"
+            $script:SecurityStatus.SecureBoot = $true
         } else {
             Write-Status " OFF " "Secure Boot: Desativado" "Red"
         }
@@ -210,10 +218,12 @@ function Get-SecurityChecks {
     $hvci = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" -Name "Enabled" -ErrorAction SilentlyContinue
     if ($hvci -and $hvci.Enabled -eq 1) {
         Write-Status " ON " "HVCI: Ativado (Memory Integrity)" "Green"
+        $script:SecurityStatus.HVCI = $true
     } else {
         $dgInfo = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard -ErrorAction SilentlyContinue
         if ($dgInfo -and $dgInfo.SecurityServicesRunning -contains 2) {
             Write-Status " ON " "HVCI: Ativado" "Green"
+            $script:SecurityStatus.HVCI = $true
         } else {
             Write-Status " OFF " "HVCI: Desativado" "Red"
         }
@@ -223,13 +233,13 @@ function Get-SecurityChecks {
     if ($vbs) {
         $vbsStatus = $vbs.VirtualizationBasedSecurityStatus
         switch ($vbsStatus) {
-            0 { Write-Status " OFF " "VBS: Desativado" "Yellow" }
-            1 { Write-Status " ON " "VBS: Ativado mas nao rodando" "Yellow" }
+            0 { Write-Status " OFF " "VBS: Desativado" "Red" }
+            1 { Write-Status " ON " "VBS: Ativado mas nao rodando" "Red" }
             2 { Write-Status " ON " "VBS: Ativado e rodando" "Green" }
-            default { Write-Status "N/A " "VBS: Status desconhecido" "DarkGray" }
+            default { Write-Status " N/A " "VBS: Status desconhecido" "DarkGray" }
         }
     } else {
-        Write-Status "N/A " "VBS: Nao disponivel" "DarkGray"
+        Write-Status " N/A " "VBS: Nao disponivel" "DarkGray"
     }
     
     $iommu = $false
@@ -245,6 +255,7 @@ function Get-SecurityChecks {
     
     if ($iommu -or ($dmaGuard -and $dmaGuard.DmaGuardPolicyEnabled -eq 1)) {
         Write-Status " ON " "IOMMU/DMA Protection: Ativado" "Green"
+        $script:SecurityStatus.IOMMU = $true
     } else {
         $cpuVirt = (Get-WmiObject -Class Win32_Processor).VirtualizationFirmwareEnabled
         if ($cpuVirt) {
@@ -276,7 +287,7 @@ function Get-SecurityChecks {
         if ($rdpNLA -and $rdpNLA.UserAuthentication -eq 1) {
             Write-Status " ON " "RDP: Ativado (NLA habilitado)" "Green"
         } else {
-            Write-Status " ON " "RDP: Ativado (NLA desabilitado)" "Yellow"
+            Write-Status " ON " "RDP: Ativado (NLA desabilitado)" "Red"
         }
     } else {
         Write-Status " OFF " "RDP: Desativado" "Red"
@@ -289,7 +300,7 @@ function Get-SecurityChecks {
     if ($fwEnabled -eq $fwTotal -and $fwTotal -gt 0) {
         Write-Status " ON " "Firewall: Todos os perfis ativos ($fwEnabled/$fwTotal)" "Green"
     } elseif ($fwEnabled -gt 0) {
-        Write-Status " WARN " "Firewall: Parcialmente ativo ($fwEnabled/$fwTotal)" "Yellow"
+        Write-Status "WARN" "Firewall: Parcialmente ativo ($fwEnabled/$fwTotal)" "Yellow"
     } else {
         Write-Status " OFF " "Firewall: Desativado" "Red"
     }
@@ -298,6 +309,7 @@ function Get-SecurityChecks {
     if ($defender) {
         if ($defender.RealTimeProtectionEnabled) {
             Write-Status " ON " "Windows Defender: Protecao em tempo real ativa" "Green"
+            $script:SecurityStatus.Antivirus = $true
         } else {
             Write-Status " OFF " "Windows Defender: Protecao em tempo real desativada" "Red"
         }
@@ -333,7 +345,7 @@ if (!(Test-SysmonInstalled)) {
 }
 else {
     Write-Host ""
-    Write-Status " OK " "Sysmon ja esta instalado" "Green"
+    Write-Status " OK" "Sysmon ja esta instalado" "Green"
 }
 
 Write-Host ""
@@ -369,6 +381,54 @@ if (Test-SysmonInstalled) {
 }
 
 Write-Host ""
+Write-Host "  ═══════════════════════════════════════════════════════════════" -ForegroundColor DarkCyan
+Write-Host ""
+
+$missingItems = @()
+if (-not $script:SecurityStatus.Antivirus) { $missingItems += "Antivirus (Windows Defender)" }
+if (-not $script:SecurityStatus.SecureBoot) { $missingItems += "Secure Boot" }
+if (-not $script:SecurityStatus.HVCI) { $missingItems += "HVCI (Memory Integrity)" }
+if (-not $script:SecurityStatus.IOMMU) { $missingItems += "IOMMU/DMA Protection" }
+
+if ($missingItems.Count -gt 0) {
+    Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor Red
+    Write-Host "  ║               Ainda há serviços inativos                 ║" -ForegroundColor Red
+    Write-Host "  ╚══════════════════════════════════════════════════════════╝" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Os seguintes itens precisam ser ativados:" -ForegroundColor Yellow
+    Write-Host ""
+    foreach ($item in $missingItems) {
+        Write-Host "    • $item" -ForegroundColor Red
+    }
+    Write-Host ""
+    Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+    Write-Host "  Como ativar:" -ForegroundColor Cyan
+    Write-Host ""
+    if (-not $script:SecurityStatus.Antivirus) {
+        Write-Host "  Antivirus:" -ForegroundColor White
+        Write-Host "    Configuracoes > Privacidade e Seguranca > Seguranca do Windows" -ForegroundColor DarkGray
+    }
+    if (-not $script:SecurityStatus.SecureBoot) {
+        Write-Host "  Secure Boot:" -ForegroundColor White
+        Write-Host "    Ativar na BIOS/UEFI (requer modo UEFI, nao Legacy)" -ForegroundColor DarkGray
+    }
+    if (-not $script:SecurityStatus.HVCI) {
+        Write-Host "  HVCI (Memory Integrity):" -ForegroundColor White
+        Write-Host "    Configuracoes > Privacidade e Seguranca > Seguranca do Windows" -ForegroundColor DarkGray
+        Write-Host "    > Seguranca do dispositivo > Isolamento de nucleo" -ForegroundColor DarkGray
+    }
+    if (-not $script:SecurityStatus.IOMMU) {
+        Write-Host "  IOMMU:" -ForegroundColor White
+        Write-Host "    Ativar Intel VT-d ou AMD-Vi na BIOS/UEFI" -ForegroundColor DarkGray
+    }
+    Write-Host ""
+} else {
+    Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor Green
+    Write-Host "  ║              Você está pronto para jogar!                ║" -ForegroundColor Green
+    Write-Host "  ╚══════════════════════════════════════════════════════════╝" -ForegroundColor Green
+    Write-Host ""
+}
+
 Write-Host "  ═══════════════════════════════════════════════════════════════" -ForegroundColor DarkCyan
 Write-Host ""
 
