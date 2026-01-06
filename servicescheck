@@ -141,12 +141,12 @@ function Enable-Service {
             return "running"
         }
         else {
-            Write-Status "STOP" $ServiceName "Red"
+            Write-Status " STOP " $ServiceName "Red"
             return "stopped"
         }
     }
     else {
-        Write-Status "N/A " $ServiceName "DarkGray"
+        Write-Status " N/A " $ServiceName "DarkGray"
         return "notfound"
     }
 }
@@ -185,10 +185,10 @@ function Get-SecurityChecks {
         if ($tpmEnabled -and $tpmActivated) {
             Write-Status " ON " "TPM: Ativado (v$tpmVersion)" "Green"
         } else {
-            Write-Status "OFF " "TPM: Presente mas nao ativado" "Yellow"
+            Write-Status " OFF " "TPM: Presente mas nao ativado" "Red"
         }
     } else {
-        Write-Status "OFF " "TPM: Nao detectado" "Red"
+        Write-Status " OFF " "TPM: Nao detectado" "Red"
     }
     
     try {
@@ -201,7 +201,7 @@ function Get-SecurityChecks {
     } catch {
         $firmwareType = (Get-WmiObject -Class Win32_ComputerSystem).BootupState
         if ($_.Exception.Message -match "not supported") {
-            Write-Status "N/A " "Secure Boot: BIOS Legacy (nao suportado)" "DarkGray"
+            Write-Status " N/A " "Secure Boot: BIOS Legacy (nao suportado)" "DarkGray"
         } else {
             Write-Status " OFF " "Secure Boot: Desativado ou inacessivel" "Red"
         }
@@ -263,7 +263,7 @@ function Get-SecurityChecks {
     } elseif ($hvService -and $hvService.Status -eq "Running") {
         Write-Status " ON " "Hyper-V: Servico rodando" "Green"
     } elseif ($cpuVirt) {
-        Write-Status " OFF " "Virtualizacao: CPU suporta (VT-x/AMD-V)" "Yellow"
+        Write-Status " OFF " "Virtualizacao: CPU suporta (VT-x/AMD-V)" "Red"
     } else {
         Write-Status " OFF " "Virtualizacao: Desativada na BIOS" "Red"
     }
