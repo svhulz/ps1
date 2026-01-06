@@ -196,14 +196,14 @@ function Get-SecurityChecks {
         if ($secureBoot) {
             Write-Status " ON " "Secure Boot: Ativado" "Green"
         } else {
-            Write-Status "OFF " "Secure Boot: Desativado" "Red"
+            Write-Status " OFF " "Secure Boot: Desativado" "Red"
         }
     } catch {
         $firmwareType = (Get-WmiObject -Class Win32_ComputerSystem).BootupState
         if ($_.Exception.Message -match "not supported") {
             Write-Status "N/A " "Secure Boot: BIOS Legacy (nao suportado)" "DarkGray"
         } else {
-            Write-Status "OFF " "Secure Boot: Desativado ou inacessivel" "Yellow"
+            Write-Status " OFF " "Secure Boot: Desativado ou inacessivel" "Red"
         }
     }
     
@@ -215,7 +215,7 @@ function Get-SecurityChecks {
         if ($dgInfo -and $dgInfo.SecurityServicesRunning -contains 2) {
             Write-Status " ON " "HVCI: Ativado" "Green"
         } else {
-            Write-Status "OFF " "HVCI: Desativado" "Yellow"
+            Write-Status " OFF " "HVCI: Desativado" "Red"
         }
     }
     
@@ -223,7 +223,7 @@ function Get-SecurityChecks {
     if ($vbs) {
         $vbsStatus = $vbs.VirtualizationBasedSecurityStatus
         switch ($vbsStatus) {
-            0 { Write-Status "OFF " "VBS: Desativado" "Yellow" }
+            0 { Write-Status " OFF " "VBS: Desativado" "Yellow" }
             1 { Write-Status " ON " "VBS: Ativado mas nao rodando" "Yellow" }
             2 { Write-Status " ON " "VBS: Ativado e rodando" "Green" }
             default { Write-Status "N/A " "VBS: Status desconhecido" "DarkGray" }
@@ -248,9 +248,9 @@ function Get-SecurityChecks {
     } else {
         $cpuVirt = (Get-WmiObject -Class Win32_Processor).VirtualizationFirmwareEnabled
         if ($cpuVirt) {
-            Write-Status "OFF " "IOMMU: CPU suporta, mas nao ativado" "Yellow"
+            Write-Status " OFF " "IOMMU: CPU suporta, mas nao ativado" "Red"
         } else {
-            Write-Status "OFF " "IOMMU: Desativado ou nao suportado" "Yellow"
+            Write-Status " OFF " "IOMMU: Desativado ou nao suportado" "Red"
         }
     }
     
@@ -263,9 +263,9 @@ function Get-SecurityChecks {
     } elseif ($hvService -and $hvService.Status -eq "Running") {
         Write-Status " ON " "Hyper-V: Servico rodando" "Green"
     } elseif ($cpuVirt) {
-        Write-Status "OFF " "Virtualizacao: CPU suporta (VT-x/AMD-V)" "Yellow"
+        Write-Status " OFF " "Virtualizacao: CPU suporta (VT-x/AMD-V)" "Yellow"
     } else {
-        Write-Status "OFF " "Virtualizacao: Desativada na BIOS" "Red"
+        Write-Status " OFF " "Virtualizacao: Desativada na BIOS" "Red"
     }
     
     $rdpEnabled = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -ErrorAction SilentlyContinue
@@ -279,7 +279,7 @@ function Get-SecurityChecks {
             Write-Status " ON " "RDP: Ativado (NLA desabilitado)" "Yellow"
         }
     } else {
-        Write-Status "OFF " "RDP: Desativado" "DarkGray"
+        Write-Status " OFF " "RDP: Desativado" "Red"
     }
     
     $fwProfiles = Get-NetFirewallProfile -ErrorAction SilentlyContinue
@@ -289,9 +289,9 @@ function Get-SecurityChecks {
     if ($fwEnabled -eq $fwTotal -and $fwTotal -gt 0) {
         Write-Status " ON " "Firewall: Todos os perfis ativos ($fwEnabled/$fwTotal)" "Green"
     } elseif ($fwEnabled -gt 0) {
-        Write-Status "WARN" "Firewall: Parcialmente ativo ($fwEnabled/$fwTotal)" "Yellow"
+        Write-Status " WARN " "Firewall: Parcialmente ativo ($fwEnabled/$fwTotal)" "Yellow"
     } else {
-        Write-Status "OFF " "Firewall: Desativado" "Red"
+        Write-Status " OFF " "Firewall: Desativado" "Red"
     }
     
     $defender = Get-MpComputerStatus -ErrorAction SilentlyContinue
@@ -299,10 +299,10 @@ function Get-SecurityChecks {
         if ($defender.RealTimeProtectionEnabled) {
             Write-Status " ON " "Windows Defender: Protecao em tempo real ativa" "Green"
         } else {
-            Write-Status "OFF " "Windows Defender: Protecao em tempo real desativada" "Red"
+            Write-Status " OFF " "Windows Defender: Protecao em tempo real desativada" "Red"
         }
     } else {
-        Write-Status "N/A " "Windows Defender: Nao disponivel" "DarkGray"
+        Write-Status " N/A " "Windows Defender: Nao disponivel" "DarkGray"
     }
 }
 
@@ -333,7 +333,7 @@ if (!(Test-SysmonInstalled)) {
 }
 else {
     Write-Host ""
-    Write-Status " OK" "Sysmon ja esta instalado" "Green"
+    Write-Status " OK " "Sysmon ja esta instalado" "Green"
 }
 
 Write-Host ""
