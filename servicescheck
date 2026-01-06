@@ -1,0 +1,387 @@
+<#
+.NOTES
+    Requer privilegios de Administrador
+#>
+
+#Requires -RunAsAdministrator
+
+$ErrorActionPreference = "SilentlyContinue"
+
+$SysmonURL = "https://download.sysinternals.com/files/Sysmon.zip"
+$TempDir = "$env:TEMP\ServicesChecker"
+$SysmonZip = "$TempDir\Sysmon.zip"
+$SysmonDir = "$TempDir\Sysmon"
+
+$Services = @("PcaSvc", "PlugPlay", "DPS", "DiagTrack", "SysMain", "EventLog")
+
+function Write-Banner {
+    Clear-Host
+    Write-Host ""
+    Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "  ║                     Services Checker                     ║" -ForegroundColor Cyan
+    Write-Host "  ║                 Maintaining Fair-Play in                 ║" -ForegroundColor Cyan
+    Write-Host "  ║                    eSports Tournaments                   ║" -ForegroundColor Cyan
+    Write-Host "  ╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
+}
+
+function Write-Status {
+    param([string]$Status, [string]$Message, [string]$Color = "White")
+    Write-Host "  [" -NoNewline
+    Write-Host $Status -ForegroundColor $Color -NoNewline
+    Write-Host "] $Message"
+}
+
+function Test-SysmonInstalled {
+    $svc = Get-Service -Name "Sysmon*" -ErrorAction SilentlyContinue
+    return ($null -ne $svc)
+}
+
+function Get-SysmonServiceName {
+    $svc = Get-Service -Name "Sysmon64" -ErrorAction SilentlyContinue
+    if ($svc) { return "Sysmon64" }
+    
+    $svc = Get-Service -Name "Sysmon" -ErrorAction SilentlyContinue
+    if ($svc) { return "Sysmon" }
+    
+    return $null
+}
+
+function Install-Sysmon {
+    Write-Host ""
+    Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+    Write-Host "  Instalando Sysmon..." -ForegroundColor Cyan
+    Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+    Write-Host ""
+
+    if (!(Test-Path $TempDir)) {
+        New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
+    }
+
+    Write-Status "..." "Baixando Sysmon do Sysinternals..." "Yellow"
+    
+    try {
+        $bitsJob = Start-BitsTransfer -Source $SysmonURL -Destination $SysmonZip -ErrorAction Stop
+        Write-Status " OK" "Download concluido" "Green"
+    }
+    catch {
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $webClient = New-Object System.Net.WebClient
+            $webClient.DownloadFile($SysmonURL, $SysmonZip)
+            Write-Status " OK" "Download concluido (WebClient)" "Green"
+        }
+        catch {
+            try {
+                Invoke-WebRequest -Uri $SysmonURL -OutFile $SysmonZip -UseBasicParsing
+                Write-Status " OK" "Download concluido (IWR)" "Green"
+            }
+            catch {
+                Write-Status "FAIL" "Erro ao baixar: $_" "Red"
+                return $false
+            }
+        }
+    }
+
+    Write-Status "..." "Extraindo arquivos..." "Yellow"
+    
+    try {
+        if (Test-Path $SysmonDir) {
+            Remove-Item -Path $SysmonDir -Recurse -Force
+        }
+        
+        Expand-Archive -Path $SysmonZip -DestinationPath $SysmonDir -Force
+        Write-Status " OK" "Arquivos extraidos" "Green"
+    }
+    catch {
+        Write-Status "FAIL" "Erro ao extrair: $_" "Red"
+        return $false
+    }
+
+    $is64bit = [Environment]::Is64BitOperatingSystem
+    $sysmonExe = if ($is64bit) { "$SysmonDir\Sysmon64.exe" } else { "$SysmonDir\Sysmon.exe" }
+    
+    if (!(Test-Path $sysmonExe)) {
+        Write-Status "FAIL" "Executavel nao encontrado: $sysmonExe" "Red"
+        return $false
+    }
+
+    Write-Status "..." "Instalando Sysmon..." "Yellow"
+    
+    try {
+        $process = Start-Process -FilePath $sysmonExe -ArgumentList "-accepteula -i" -Wait -PassThru -NoNewWindow
+        
+        if ($process.ExitCode -eq 0) {
+            Write-Status " OK" "Sysmon instalado com sucesso!" "Green"
+            return $true
+        }
+        else {
+            $process = Start-Process -FilePath $sysmonExe -ArgumentList "-accepteula -u" -Wait -PassThru -NoNewWindow
+            Start-Sleep -Seconds 2
+            $process = Start-Process -FilePath $sysmonExe -ArgumentList "-accepteula -i" -Wait -PassThru -NoNewWindow
+            
+            if ($process.ExitCode -eq 0) {
+                Write-Status " OK" "Sysmon reinstalado com sucesso!" "Green"
+                return $true
+            }
+            
+            Write-Status "WARN" "Sysmon pode ja estar instalado (codigo: $($process.ExitCode))" "Yellow"
+            return $true
+        }
+    }
+    catch {
+        Write-Status "FAIL" "Erro ao instalar: $_" "Red"
+        return $false
+    }
+}
+
+function Enable-Service {
+    param([string]$ServiceName)
+
+    sc.exe config $ServiceName start= auto 2>$null | Out-Null
+    net start $ServiceName 2>$null | Out-Null
+    
+    $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    
+    if ($svc) {
+        if ($svc.Status -eq "Running") {
+            Write-Status " ON " $ServiceName "Green"
+            return "running"
+        }
+        else {
+            Write-Status "STOP" $ServiceName "Red"
+            return "stopped"
+        }
+    }
+    else {
+        Write-Status "N/A " $ServiceName "DarkGray"
+        return "notfound"
+    }
+}
+
+function Enable-USNJournal {
+    Write-Host ""
+    Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+    Write-Host "  Ativando USN Journal..." -ForegroundColor Cyan
+    Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+    Write-Host ""
+    
+    $drives = Get-WmiObject -Class Win32_LogicalDisk -Filter "DriveType=3" | Select-Object -ExpandProperty DeviceID
+    
+    foreach ($drive in $drives) {
+        fsutil usn createjournal m=1000 a=100 $drive 2>$null | Out-Null
+        Write-Status " OK " "$drive USN Journal" "Green"
+    }
+}
+
+function Get-SecurityChecks {
+    Write-Host ""
+    Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+    Write-Host "  Verificando configuracoes de seguranca..." -ForegroundColor Cyan
+    Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+    Write-Host ""
+
+    $tpm = Get-WmiObject -Namespace "Root\CIMv2\Security\MicrosoftTpm" -Class Win32_Tpm -ErrorAction SilentlyContinue
+    if ($tpm) {
+        $tpmEnabled = $tpm.IsEnabled_InitialValue
+        $tpmActivated = $tpm.IsActivated_InitialValue
+        $tpmVersion = (Get-WmiObject -Namespace "Root\CIMv2\Security\MicrosoftTpm" -Class Win32_Tpm).SpecVersion
+        if ($tpmVersion) {
+            $tpmVersion = $tpmVersion.Split(",")[0]
+        }
+        
+        if ($tpmEnabled -and $tpmActivated) {
+            Write-Status " ON " "TPM: Ativado (v$tpmVersion)" "Green"
+        } else {
+            Write-Status "OFF " "TPM: Presente mas nao ativado" "Yellow"
+        }
+    } else {
+        Write-Status "OFF " "TPM: Nao detectado" "Red"
+    }
+
+    try {
+        $secureBoot = Confirm-SecureBootUEFI -ErrorAction Stop
+        if ($secureBoot) {
+            Write-Status " ON " "Secure Boot: Ativado" "Green"
+        } else {
+            Write-Status "OFF " "Secure Boot: Desativado" "Red"
+        }
+    } catch {
+        $firmwareType = (Get-WmiObject -Class Win32_ComputerSystem).BootupState
+        if ($_.Exception.Message -match "not supported") {
+            Write-Status "N/A " "Secure Boot: BIOS Legacy (nao suportado)" "DarkGray"
+        } else {
+            Write-Status "OFF " "Secure Boot: Desativado ou inacessivel" "Yellow"
+        }
+    }
+
+    $hvci = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" -Name "Enabled" -ErrorAction SilentlyContinue
+    if ($hvci -and $hvci.Enabled -eq 1) {
+        Write-Status " ON " "HVCI: Ativado (Memory Integrity)" "Green"
+    } else {
+        $dgInfo = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard -ErrorAction SilentlyContinue
+        if ($dgInfo -and $dgInfo.SecurityServicesRunning -contains 2) {
+            Write-Status " ON " "HVCI: Ativado" "Green"
+        } else {
+            Write-Status "OFF " "HVCI: Desativado" "Yellow"
+        }
+    }
+
+    $vbs = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard -ErrorAction SilentlyContinue
+    if ($vbs) {
+        $vbsStatus = $vbs.VirtualizationBasedSecurityStatus
+        switch ($vbsStatus) {
+            0 { Write-Status "OFF " "VBS: Desativado" "Yellow" }
+            1 { Write-Status " ON " "VBS: Ativado mas nao rodando" "Yellow" }
+            2 { Write-Status " ON " "VBS: Ativado e rodando" "Green" }
+            default { Write-Status "N/A " "VBS: Status desconhecido" "DarkGray" }
+        }
+    } else {
+        Write-Status "N/A " "VBS: Nao disponivel" "DarkGray"
+    }
+
+    $iommu = $false
+
+    if ($vbs -and $vbs.AvailableSecurityProperties) {
+        # Property 3 = DMA Protection (IOMMU)
+        if ($vbs.AvailableSecurityProperties -contains 3) {
+            $iommu = $true
+        }
+    }
+
+    $kernelDma = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Kernel DMA Protection" -Name "DeviceEnumerationPolicy" -ErrorAction SilentlyContinue
+    $dmaGuard = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DmaSecurity" -Name "DmaGuardPolicyEnabled" -ErrorAction SilentlyContinue
+    
+    if ($iommu -or ($dmaGuard -and $dmaGuard.DmaGuardPolicyEnabled -eq 1)) {
+        Write-Status " ON " "IOMMU/DMA Protection: Ativado" "Green"
+    } else {
+        $cpuVirt = (Get-WmiObject -Class Win32_Processor).VirtualizationFirmwareEnabled
+        if ($cpuVirt) {
+            Write-Status "OFF " "IOMMU: CPU suporta, mas nao ativado" "Yellow"
+        } else {
+            Write-Status "OFF " "IOMMU: Desativado ou nao suportado" "Yellow"
+        }
+    }
+
+    $hyperv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -ErrorAction SilentlyContinue
+    $hvService = Get-Service -Name "vmcompute" -ErrorAction SilentlyContinue
+    $cpuVirt = (Get-WmiObject -Class Win32_Processor).VirtualizationFirmwareEnabled
+    
+    if ($hyperv -and $hyperv.State -eq "Enabled") {
+        Write-Status " ON " "Hyper-V: Instalado e ativado" "Green"
+    } elseif ($hvService -and $hvService.Status -eq "Running") {
+        Write-Status " ON " "Hyper-V: Servico rodando" "Green"
+    } elseif ($cpuVirt) {
+        Write-Status "OFF " "Virtualizacao: CPU suporta (VT-x/AMD-V)" "Yellow"
+    } else {
+        Write-Status "OFF " "Virtualizacao: Desativada na BIOS" "Red"
+    }
+
+    $rdpEnabled = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -ErrorAction SilentlyContinue
+    $rdpService = Get-Service -Name "TermService" -ErrorAction SilentlyContinue
+    $rdpNLA = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "UserAuthentication" -ErrorAction SilentlyContinue
+    
+    if ($rdpEnabled -and $rdpEnabled.fDenyTSConnections -eq 0) {
+        if ($rdpNLA -and $rdpNLA.UserAuthentication -eq 1) {
+            Write-Status " ON " "RDP: Ativado (NLA habilitado)" "Green"
+        } else {
+            Write-Status " ON " "RDP: Ativado (NLA desabilitado)" "Yellow"
+        }
+    } else {
+        Write-Status "OFF " "RDP: Desativado" "DarkGray"
+    }
+
+    $fwProfiles = Get-NetFirewallProfile -ErrorAction SilentlyContinue
+    $fwEnabled = ($fwProfiles | Where-Object { $_.Enabled -eq $true }).Count
+    $fwTotal = ($fwProfiles).Count
+    
+    if ($fwEnabled -eq $fwTotal -and $fwTotal -gt 0) {
+        Write-Status " ON " "Firewall: Todos os perfis ativos ($fwEnabled/$fwTotal)" "Green"
+    } elseif ($fwEnabled -gt 0) {
+        Write-Status "WARN" "Firewall: Parcialmente ativo ($fwEnabled/$fwTotal)" "Yellow"
+    } else {
+        Write-Status "OFF " "Firewall: Desativado" "Red"
+    }
+
+    $defender = Get-MpComputerStatus -ErrorAction SilentlyContinue
+    if ($defender) {
+        if ($defender.RealTimeProtectionEnabled) {
+            Write-Status " ON " "Windows Defender: Protecao em tempo real ativa" "Green"
+        } else {
+            Write-Status "OFF " "Windows Defender: Protecao em tempo real desativada" "Red"
+        }
+    } else {
+        Write-Status "N/A " "Windows Defender: Nao disponivel" "DarkGray"
+    }
+}
+
+function Cleanup {
+    if (Test-Path $TempDir) {
+        Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Write-Banner
+
+Write-Host "  [" -NoNewline
+Write-Host "+" -ForegroundColor Green -NoNewline
+Write-Host "] Privilegios de administrador OK"
+Write-Host ""
+
+# Security Checks
+Get-SecurityChecks
+
+# Sysmon Install
+if (!(Test-SysmonInstalled)) {
+    Write-Status "!" "Sysmon NAO esta instalado" "Yellow"
+    
+    $install = Install-Sysmon
+    
+    if (!$install) {
+        Write-Host ""
+        Write-Status "!" "Falha ao instalar Sysmon. Continuando com outros servicos..." "Yellow"
+    }
+}
+else {
+    Write-Host ""
+    Write-Status " OK" "Sysmon ja esta instalado" "Green"
+}
+
+# Enable Services
+Write-Host ""
+Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+Write-Host "  Ativando servicos essenciais..." -ForegroundColor Cyan
+Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+Write-Host ""
+
+foreach ($svc in $Services) {
+    Enable-Service -ServiceName $svc | Out-Null
+}
+
+$sysmonName = Get-SysmonServiceName
+if ($sysmonName) {
+    Enable-Service -ServiceName $sysmonName | Out-Null
+}
+
+Enable-USNJournal
+
+Cleanup
+
+Write-Host ""
+Write-Host "  ═══════════════════════════════════════════════════════════════" -ForegroundColor DarkCyan
+Write-Host ""
+Write-Host "  Concluido!" -ForegroundColor Green
+Write-Host ""
+
+if (Test-SysmonInstalled) {
+    $sysmonSvc = Get-Service -Name "Sysmon*" | Select-Object -First 1
+    Write-Host "  Sysmon Status: " -NoNewline
+    Write-Host $sysmonSvc.Status -ForegroundColor $(if ($sysmonSvc.Status -eq "Running") { "Green" } else { "Red" })
+    Write-Host "  Sysmon Service: $($sysmonSvc.Name)"
+}
+
+Write-Host ""
+Write-Host "  ═══════════════════════════════════════════════════════════════" -ForegroundColor DarkCyan
+Write-Host ""
+
+pause
