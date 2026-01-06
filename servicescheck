@@ -20,6 +20,7 @@ function Write-Banner {
     Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "  ║                     Services Checker                     ║" -ForegroundColor Cyan
     Write-Host "  ║        Maintaining Fair-Play eSports Tournaments         ║" -ForegroundColor Cyan
+    Write-Host "  ║                         Schulz                           ║" -ForegroundColor Cyan
     Write-Host "  ╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
     Write-Host ""
 }
