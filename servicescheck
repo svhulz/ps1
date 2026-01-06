@@ -1,10 +1,3 @@
-<#
-.NOTES
-    Requer privilegios de Administrador
-#>
-
-#Requires -RunAsAdministrator
-
 $ErrorActionPreference = "SilentlyContinue"
 
 $SysmonURL = "https://download.sysinternals.com/files/Sysmon.zip"
@@ -19,8 +12,7 @@ function Write-Banner {
     Write-Host ""
     Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "  ║                     Services Checker                     ║" -ForegroundColor Cyan
-    Write-Host "  ║                 Maintaining Fair-Play in                 ║" -ForegroundColor Cyan
-    Write-Host "  ║                    eSports Tournaments                   ║" -ForegroundColor Cyan
+    Write-Host "  ║        Maintaining Fair-Play eSports Tournaments         ║" -ForegroundColor Cyan
     Write-Host "  ╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
     Write-Host ""
 }
@@ -62,22 +54,22 @@ function Install-Sysmon {
     
     try {
         $bitsJob = Start-BitsTransfer -Source $SysmonURL -Destination $SysmonZip -ErrorAction Stop
-        Write-Status " OK" "Download concluido" "Green"
+        Write-Status " OK " "Download concluido" "Green"
     }
     catch {
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             $webClient = New-Object System.Net.WebClient
             $webClient.DownloadFile($SysmonURL, $SysmonZip)
-            Write-Status " OK" "Download concluido (WebClient)" "Green"
+            Write-Status " OK " "Download concluido (WebClient)" "Green"
         }
         catch {
             try {
                 Invoke-WebRequest -Uri $SysmonURL -OutFile $SysmonZip -UseBasicParsing
-                Write-Status " OK" "Download concluido (IWR)" "Green"
+                Write-Status " OK " "Download concluido (IWR)" "Green"
             }
             catch {
-                Write-Status "FAIL" "Erro ao baixar: $_" "Red"
+                Write-Status " FAIL " "Erro ao baixar: $_" "Red"
                 return $false
             }
         }
@@ -91,10 +83,10 @@ function Install-Sysmon {
         }
         
         Expand-Archive -Path $SysmonZip -DestinationPath $SysmonDir -Force
-        Write-Status " OK" "Arquivos extraidos" "Green"
+        Write-Status " OK " "Arquivos extraidos" "Green"
     }
     catch {
-        Write-Status "FAIL" "Erro ao extrair: $_" "Red"
+        Write-Status " FAIL " "Erro ao extrair: $_" "Red"
         return $false
     }
 
@@ -102,7 +94,7 @@ function Install-Sysmon {
     $sysmonExe = if ($is64bit) { "$SysmonDir\Sysmon64.exe" } else { "$SysmonDir\Sysmon.exe" }
     
     if (!(Test-Path $sysmonExe)) {
-        Write-Status "FAIL" "Executavel nao encontrado: $sysmonExe" "Red"
+        Write-Status " FAIL " "Executavel nao encontrado: $sysmonExe" "Red"
         return $false
     }
 
@@ -112,7 +104,7 @@ function Install-Sysmon {
         $process = Start-Process -FilePath $sysmonExe -ArgumentList "-accepteula -i" -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -eq 0) {
-            Write-Status " OK" "Sysmon instalado com sucesso!" "Green"
+            Write-Status " OK " "Sysmon instalado com sucesso!" "Green"
             return $true
         }
         else {
@@ -121,7 +113,7 @@ function Install-Sysmon {
             $process = Start-Process -FilePath $sysmonExe -ArgumentList "-accepteula -i" -Wait -PassThru -NoNewWindow
             
             if ($process.ExitCode -eq 0) {
-                Write-Status " OK" "Sysmon reinstalado com sucesso!" "Green"
+                Write-Status " OK " "Sysmon reinstalado com sucesso!" "Green"
                 return $true
             }
             
@@ -180,7 +172,7 @@ function Get-SecurityChecks {
     Write-Host "  Verificando configuracoes de seguranca..." -ForegroundColor Cyan
     Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
     Write-Host ""
-
+    
     $tpm = Get-WmiObject -Namespace "Root\CIMv2\Security\MicrosoftTpm" -Class Win32_Tpm -ErrorAction SilentlyContinue
     if ($tpm) {
         $tpmEnabled = $tpm.IsEnabled_InitialValue
@@ -198,7 +190,7 @@ function Get-SecurityChecks {
     } else {
         Write-Status "OFF " "TPM: Nao detectado" "Red"
     }
-
+    
     try {
         $secureBoot = Confirm-SecureBootUEFI -ErrorAction Stop
         if ($secureBoot) {
@@ -214,7 +206,7 @@ function Get-SecurityChecks {
             Write-Status "OFF " "Secure Boot: Desativado ou inacessivel" "Yellow"
         }
     }
-
+    
     $hvci = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" -Name "Enabled" -ErrorAction SilentlyContinue
     if ($hvci -and $hvci.Enabled -eq 1) {
         Write-Status " ON " "HVCI: Ativado (Memory Integrity)" "Green"
@@ -226,7 +218,7 @@ function Get-SecurityChecks {
             Write-Status "OFF " "HVCI: Desativado" "Yellow"
         }
     }
-
+    
     $vbs = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard -ErrorAction SilentlyContinue
     if ($vbs) {
         $vbsStatus = $vbs.VirtualizationBasedSecurityStatus
@@ -239,16 +231,15 @@ function Get-SecurityChecks {
     } else {
         Write-Status "N/A " "VBS: Nao disponivel" "DarkGray"
     }
-
+    
     $iommu = $false
-
+    
     if ($vbs -and $vbs.AvailableSecurityProperties) {
-        # Property 3 = DMA Protection (IOMMU)
         if ($vbs.AvailableSecurityProperties -contains 3) {
             $iommu = $true
         }
     }
-
+    
     $kernelDma = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Kernel DMA Protection" -Name "DeviceEnumerationPolicy" -ErrorAction SilentlyContinue
     $dmaGuard = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DmaSecurity" -Name "DmaGuardPolicyEnabled" -ErrorAction SilentlyContinue
     
@@ -262,7 +253,7 @@ function Get-SecurityChecks {
             Write-Status "OFF " "IOMMU: Desativado ou nao suportado" "Yellow"
         }
     }
-
+    
     $hyperv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -ErrorAction SilentlyContinue
     $hvService = Get-Service -Name "vmcompute" -ErrorAction SilentlyContinue
     $cpuVirt = (Get-WmiObject -Class Win32_Processor).VirtualizationFirmwareEnabled
@@ -276,7 +267,7 @@ function Get-SecurityChecks {
     } else {
         Write-Status "OFF " "Virtualizacao: Desativada na BIOS" "Red"
     }
-
+    
     $rdpEnabled = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -ErrorAction SilentlyContinue
     $rdpService = Get-Service -Name "TermService" -ErrorAction SilentlyContinue
     $rdpNLA = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "UserAuthentication" -ErrorAction SilentlyContinue
@@ -290,7 +281,7 @@ function Get-SecurityChecks {
     } else {
         Write-Status "OFF " "RDP: Desativado" "DarkGray"
     }
-
+    
     $fwProfiles = Get-NetFirewallProfile -ErrorAction SilentlyContinue
     $fwEnabled = ($fwProfiles | Where-Object { $_.Enabled -eq $true }).Count
     $fwTotal = ($fwProfiles).Count
@@ -302,7 +293,7 @@ function Get-SecurityChecks {
     } else {
         Write-Status "OFF " "Firewall: Desativado" "Red"
     }
-
+    
     $defender = Get-MpComputerStatus -ErrorAction SilentlyContinue
     if ($defender) {
         if ($defender.RealTimeProtectionEnabled) {
@@ -328,10 +319,8 @@ Write-Host "+" -ForegroundColor Green -NoNewline
 Write-Host "] Privilegios de administrador OK"
 Write-Host ""
 
-# Security Checks
 Get-SecurityChecks
 
-# Sysmon Install
 if (!(Test-SysmonInstalled)) {
     Write-Status "!" "Sysmon NAO esta instalado" "Yellow"
     
@@ -347,7 +336,6 @@ else {
     Write-Status " OK" "Sysmon ja esta instalado" "Green"
 }
 
-# Enable Services
 Write-Host ""
 Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
 Write-Host "  Ativando servicos essenciais..." -ForegroundColor Cyan
@@ -384,4 +372,6 @@ Write-Host ""
 Write-Host "  ═══════════════════════════════════════════════════════════════" -ForegroundColor DarkCyan
 Write-Host ""
 
-pause
+Write-Host "  Pressione ENTER para fechar..." -ForegroundColor DarkGray
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+exit
